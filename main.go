@@ -26,13 +26,13 @@ func main() {
 	log.Printf("Starting web server>>>>")
 
 	r := gin.New()
-
+	const routeUrl string = "/post/:id"
 	r.GET("/", home)
 	r.GET("/post", index)
 	r.POST("/post", store)
-	r.GET("/post/:id", show)
-	r.PUT("/post/:id", update)
-	r.DELETE("/post/:id", destroy)
+	r.GET(routeUrl, show)
+	r.PUT(routeUrl, update)
+	r.DELETE(routeUrl, destroy)
 
 	r.Run()
 }
