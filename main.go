@@ -1,32 +1,46 @@
 package main
 
 import (
+	"database/sql"
 	"log"
 	"net/http"
-	"slices"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-sql-driver/mysql"
 	"github.com/joy2362/go_blog/helper"
 )
 
 type Post struct {
-	ID      uint64 `json:"id"`
-	Content string `json:"content"`
-	Author  string `json:"author"`
+	ID     uint64 `json:"id"`
+	POST   string `json:"post"`
+	Author string `json:"author"`
 }
 
+var db *sql.DB
+
 var posts = []Post{
-	{ID: 1, Content: "This is demo post details", Author: "joy"},
-	{ID: 2, Content: "This is demo post details 2", Author: "joy"},
-	{ID: 3, Content: "This is demo post details 3", Author: "joy"},
+	{ID: 1, POST: "This is demo post details", Author: "joy"},
+	{ID: 2, POST: "This is demo post details 2", Author: "joy"},
+	{ID: 3, POST: "This is demo post details 3", Author: "joy"},
 }
+
+var dbConfig = mysql.Config{
+	User:                 "root",
+	Passwd:               "",
+	Net:                  "tcp",
+	Addr:                 "127.0.0.1:3306",
+	DBName:               "blog",
+	AllowNativePasswords: true,
+}
+
+const routeUrl string = "/post/:id"
 
 func main() {
 	log.Printf("Starting web server>>>>")
 
 	r := gin.New()
-	const routeUrl string = "/post/:id"
+
 	r.GET("/", home)
 	r.GET("/post", index)
 	r.POST("/post", store)
@@ -59,13 +73,48 @@ func home(c *gin.Context) {
  * @author	Joy2362
  * @since	v0.0.1
  * @version	v1.0.0	Thursday, January 4th, 2024.
+ * @version	v1.0.1	Saturday, January 20th, 2024.
  * @global
  * @param	c	*gin.Context
  * @return	void
  */
 func index(c *gin.Context) {
+
+	db, err := sql.Open("mysql", dbConfig.FormatDSN())
+	helper.Panic(err)
+
+	pinngErr := db.Ping()
+	helper.Panic(pinngErr)
+
+	var content []Post
+	rows, err := db.Query("select * from content")
+
+	if err != nil {
+		log.Println(err)
+		c.JSON(http.StatusNotFound, helper.ErrorResponse("Someting went wrong!!"))
+		return
+	}
+
+	defer db.Close()
+	defer rows.Close()
+
+	for rows.Next() {
+		var post Post
+		if err := rows.Scan(&post.ID, &post.POST, &post.Author); err != nil {
+			log.Println(err)
+			c.JSON(http.StatusNotFound, helper.ErrorResponse("Someting went wrong!!"))
+			return
+		}
+		content = append(content, post)
+	}
+	if err := rows.Err(); err != nil {
+		log.Println(err)
+		c.JSON(http.StatusNotFound, helper.ErrorResponse("Someting went wrong!!"))
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"data":    posts,
+		"data":    content,
 		"success": true,
 	})
 }
@@ -81,16 +130,37 @@ func index(c *gin.Context) {
  * @return	void
  */
 func store(c *gin.Context) {
+	db, err := sql.Open("mysql", dbConfig.FormatDSN())
+	helper.Panic(err)
+
+	pinngErr := db.Ping()
+	helper.Panic(pinngErr)
+
 	var post Post
 	if err := c.BindJSON(&post); err != nil {
+		log.Println(err)
+		c.JSON(http.StatusNotFound, helper.ErrorResponse("Something went wrong!!"))
+		return
+	}
+
+	result, err := db.Exec("insert into content(post , author) values (?,?)", post.POST, post.Author)
+	if err != nil {
 		log.Fatal(err)
 		c.JSON(http.StatusNotFound, helper.ErrorResponse("Something went wrong!!"))
 		return
 	}
-	posts = append(posts, post)
+
+	defer db.Close()
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		log.Fatal(err)
+		c.JSON(http.StatusNotFound, helper.ErrorResponse("Something went wrong!!"))
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"data":    post,
+		"data":    id,
 		"success": true,
 	})
 }
@@ -101,23 +171,37 @@ func store(c *gin.Context) {
  * @author	Joy2362
  * @since	v0.0.1
  * @version	v1.0.0	Thursday, January 4th, 2024.
+ * @version	v1.0.1	Saturday, January 20th, 2024.
  * @global
  * @param	c	*gin.Context
  * @return	void
  */
 func show(c *gin.Context) {
+	db, err := sql.Open("mysql", dbConfig.FormatDSN())
+	helper.Panic(err)
+
+	pinngErr := db.Ping()
+	helper.Panic(pinngErr)
+
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	helper.Panic(err)
-	index := slices.IndexFunc(posts, func(p Post) bool { return int64(p.ID) == id })
 
-	if index == -1 {
-		c.JSON(http.StatusNotFound, helper.ErrorResponse("post not found"))
-	} else {
-		c.JSON(http.StatusOK, gin.H{
-			"data":    posts[index],
-			"success": true,
-		})
+	var content Post
+	row := db.QueryRow("select * from content where id = ?", id)
+
+	defer db.Close()
+
+	if err := row.Scan(&content.ID, &content.POST, &content.Author); err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, helper.ErrorResponse("post not found"))
+			return
+		}
 	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data":    content,
+		"success": true,
+	})
 }
 
 /**
@@ -131,24 +215,48 @@ func show(c *gin.Context) {
  * @return	void
  */
 func update(c *gin.Context) {
+
+	db, err := sql.Open("mysql", dbConfig.FormatDSN())
+	helper.Panic(err)
+
+	pinngErr := db.Ping()
+	helper.Panic(pinngErr)
+
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	helper.Panic(err)
-	index := slices.IndexFunc(posts, func(p Post) bool { return int64(p.ID) == id })
-	if index == -1 {
-		c.JSON(http.StatusNotFound, helper.ErrorResponse("post not found"))
-	} else {
-		var post Post
-		if err := c.BindJSON(&post); err != nil {
-			log.Fatal(err)
-			c.JSON(http.StatusNotFound, helper.ErrorResponse("Something went wrong!!"))
-			return
-		}
-		posts[index] = post
+
+	var post Post
+	if err := c.BindJSON(&post); err != nil {
+		log.Println(err)
+		c.JSON(http.StatusNotFound, helper.ErrorResponse("Something went wrong!!"))
+		return
+	}
+
+	result, err := db.Exec("update content set post = ? , author = ? where id = ? ", post.POST, post.Author, id)
+
+	defer db.Close()
+	if err != nil {
+		log.Println(err)
+		c.JSON(http.StatusNotFound, helper.ErrorResponse("Something went wrong!!"))
+		return
+	}
+
+	count, err := result.RowsAffected()
+	if err != nil {
+		log.Println(err)
+		c.JSON(http.StatusNotFound, helper.ErrorResponse("Something went wrong!!"))
+		return
+	}
+
+	if count > 0 {
 		c.JSON(http.StatusOK, gin.H{
-			"post":    post,
+			"message": "content update successfully",
 			"success": true,
 		})
+	} else {
+		c.JSON(http.StatusNotFound, helper.ErrorResponse("content not found or nothing to upate!!"))
 	}
+
 }
 
 /**
@@ -162,16 +270,39 @@ func update(c *gin.Context) {
  * @return	void
  */
 func destroy(c *gin.Context) {
+
+	db, err := sql.Open("mysql", dbConfig.FormatDSN())
+	helper.Panic(err)
+
+	pinngErr := db.Ping()
+	helper.Panic(pinngErr)
+
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	helper.Panic(err)
-	index := slices.IndexFunc(posts, func(p Post) bool { return int64(p.ID) == id })
-	if index == -1 {
-		c.JSON(http.StatusNotFound, helper.ErrorResponse("post not found"))
-	} else {
-		posts = append(posts[:index], posts[index+1:]...)
+
+	result, err := db.Exec("delete from content where id = ? ", id)
+
+	defer db.Close()
+
+	if err != nil {
+		log.Println(err)
+		c.JSON(http.StatusNotFound, helper.ErrorResponse("Something went wrong!!"))
+		return
+	}
+
+	count, err := result.RowsAffected()
+	if err != nil {
+		log.Println(err)
+		c.JSON(http.StatusNotFound, helper.ErrorResponse("Something went wrong!!"))
+		return
+	}
+
+	if count > 0 {
 		c.JSON(http.StatusOK, gin.H{
 			"message": "Post remove successfully",
 			"success": true,
 		})
+	} else {
+		c.JSON(http.StatusNotFound, helper.ErrorResponse("post not found!!"))
 	}
 }
