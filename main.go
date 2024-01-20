@@ -17,14 +17,6 @@ type Post struct {
 	Author string `json:"author"`
 }
 
-var db *sql.DB
-
-var posts = []Post{
-	{ID: 1, POST: "This is demo post details", Author: "joy"},
-	{ID: 2, POST: "This is demo post details 2", Author: "joy"},
-	{ID: 3, POST: "This is demo post details 3", Author: "joy"},
-}
-
 var dbConfig = mysql.Config{
 	User:                 "root",
 	Passwd:               "",
